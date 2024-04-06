@@ -5,10 +5,9 @@ import { CssVarsProvider } from '@mui/joy/styles';
 import React, { FunctionComponent, StrictMode } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
-import { CustomContact } from '@app/hooks/useChat';
-import { theme, themeKeys } from '@app/utils/themes/chat-bubble';
-
-import { InitWidgetProps } from './types';
+import { CustomContact } from '@chaindesk/lib/types';
+import { InitWidgetProps } from '@chaindesk/ui/embeds/types';
+import { createTheme, createThemeKeys } from '@chaindesk/ui/themes/base';
 
 const contactAttributes = {
   'phone-number': 'phoneNumber',
@@ -17,6 +16,9 @@ const contactAttributes = {
   'last-name': 'lastName',
   email: 'email',
 };
+
+const themePrefix = 'chaindesk-embeds';
+const themeKeys = createThemeKeys(themePrefix);
 
 const assetsBaseUrl = process.env.NEXT_PUBLIC_ASSETS_BASE_URL || '';
 
@@ -50,7 +52,7 @@ const createElement = ({ name, widget }: Props) =>
       remoteFonts.setAttribute('type', 'text/css');
       remoteFonts.setAttribute(
         'href',
-        'https://fonts.googleapis.com/css2?family=Josefin+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap'
+        'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@100..900&display=swap'
       );
 
       const remoteSyles = document.createElement('link');
@@ -99,7 +101,10 @@ const createElement = ({ name, widget }: Props) =>
         <StrictMode>
           <CacheProvider value={this.cache}>
             <CssVarsProvider
-              theme={theme}
+              theme={createTheme({
+                container: this.shadowRootElement,
+                prefix: themePrefix,
+              })}
               defaultMode="light"
               colorSchemeNode={this.shadowRootElement}
               {...themeKeys}

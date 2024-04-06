@@ -21,11 +21,11 @@ import React from 'react';
 import useModal from '@app/hooks/useModal';
 
 import { appUrl } from '@chaindesk/lib/config';
+import DarkModeToggle from '@chaindesk/ui/DarkModeToggle';
 
 import Logo from '../Logo';
 import SEO from '../SEO';
 
-import ColorSchemeToggle from './ColorSchemeToggle';
 import Header from './Header';
 import Main from './Main';
 import Navigation from './Navigation';
@@ -267,7 +267,7 @@ export default function Layout(props: Props) {
                 },
               ]}
             /> */}
-            {/* <ColorSchemeToggle /> */}
+            {/* <DarkModeToggle /> */}
 
             {/* <Box
               onClick={openUserMenu as any}
@@ -307,7 +307,7 @@ export default function Layout(props: Props) {
               👋 Share feedback
             </Button>
 
-            <ColorSchemeToggle />
+            <DarkModeToggle />
           </Box>
         </Header>
         <SideNav>
@@ -318,6 +318,7 @@ export default function Layout(props: Props) {
           sx={{
             height: '100%',
             maxheight: '100%',
+            minWidth: '100%',
             overflowY: 'auto',
             backgroundColor: 'background.popup',
             ...props.mainSxProps,
@@ -336,7 +337,7 @@ export default function Layout(props: Props) {
         >
           <Box
             component={'iframe'}
-            src={'https://www.chaindesk.ai/forms/clqz46y9u003e8ipv0lvfcnsg'}
+            src={'https://app.chaindesk.ai/forms/clqz46y9u003e8ipv0lvfcnsg'}
             frameBorder="0"
             sx={{
               width: '100%',

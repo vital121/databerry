@@ -6,7 +6,6 @@ import toast from 'react-hot-toast';
 import { SWRResponse } from 'swr';
 
 import useAgent, { UseAgentMutation, UseAgentQuery } from '@app/hooks/useAgent';
-import useStateReducer from '@app/hooks/useStateReducer';
 
 import {
   CUSTOMER_SUPPORT,
@@ -14,6 +13,7 @@ import {
 } from '@chaindesk/lib/prompt-templates';
 import { CreateAgentSchema } from '@chaindesk/lib/types/dtos';
 import { Agent, AgentModelName, Prisma, PromptType } from '@chaindesk/prisma';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
 
 // interface ConnectFormProps<TFieldValues extends FieldValues> {
 //   children(children: UseFormReturn<TFieldValues>): ReactElement;
@@ -41,7 +41,18 @@ function AgentForm(props: Props) {
   const { query, mutation } = useAgent({ id: agentId });
 
   const methods = useForm<CreateAgentSchema>({
-    resolver: zodResolver(CreateAgentSchema),
+    // resolver: zodResolver(CreateAgentSchema),
+    resolver: async (data, context, options) => {
+      // you can debug your validation schema here
+      // console.log('formData', data);
+      const validation = await zodResolver(CreateAgentSchema)(
+        data,
+        context,
+        options
+      );
+      console.log('validation result', validation);
+      return validation;
+    },
     defaultValues: {
       promptType: PromptType.raw,
       // prompt: CUSTOMER_SUPPORT,

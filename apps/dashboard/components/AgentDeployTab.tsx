@@ -6,7 +6,6 @@ import Button from '@mui/joy/Button';
 import Chip from '@mui/joy/Chip';
 import Stack from '@mui/joy/Stack';
 import Typography from '@mui/joy/Typography';
-import axios from 'axios';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
@@ -15,9 +14,9 @@ import React from 'react';
 
 import useAgent from '@app/hooks/useAgent';
 import useModal from '@app/hooks/useModal';
-import useStateReducer from '@app/hooks/useStateReducer';
 
 import { AgentVisibility, DatastoreVisibility } from '@chaindesk/prisma';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
 
 import SettingCard from './ui/SettingCard';
 import UsageLimitModal from './UsageLimitModal';
@@ -63,6 +62,13 @@ const ZendeskSettings = dynamic(
   }
 );
 
+const ShopifySettings = dynamic(
+  () => import('@app/components/ShopifySettings'),
+  {
+    ssr: false,
+  }
+);
+
 const WhatsAppSettings = dynamic(
   () => import('@app/components/WhatsAppSettings'),
   {
@@ -89,6 +95,7 @@ function AgentDeployTab(props: Props) {
   const standalonePageModal = useModal();
   const zendeskModal = useModal();
   const whatsappModal = useModal();
+  const shopifyModal = useModal();
 
   const { query, mutation } = useAgent({
     id: props.agentId as string,
@@ -156,7 +163,6 @@ function AgentDeployTab(props: Props) {
               },
               publicAgentRequired: true,
             },
-
             {
               hidden: false,
               name: 'WhatsApp',
@@ -171,6 +177,23 @@ function AgentDeployTab(props: Props) {
               ),
               action: async () => {
                 whatsappModal.open();
+              },
+              isPremium: true,
+            },
+            {
+              hidden: false,
+              name: 'Shopify',
+              icon: (
+                <Image
+                  className="w-8"
+                  src="/shopify/icon.svg"
+                  width={100}
+                  height={100}
+                  alt="Shopify Logo"
+                />
+              ),
+              action: async () => {
+                shopifyModal.open();
               },
               isPremium: true,
             },
@@ -197,7 +220,7 @@ function AgentDeployTab(props: Props) {
               icon: (
                 <Image
                   className="w-8"
-                  src="/slack-logo.png"
+                  src="/shared/images/logos/slack.png"
                   width={100}
                   height={100}
                   alt="slack logo"
@@ -426,6 +449,32 @@ function AgentDeployTab(props: Props) {
           >
             <WhatsAppSettings agentId={props.agentId} />
           </whatsappModal.component>
+
+          <shopifyModal.component
+            title={
+              <Typography
+                startDecorator={
+                  <Image
+                    className="w-6"
+                    src="/shopify/icon.svg"
+                    width={100}
+                    height={100}
+                    alt="Whatsapp Logo"
+                  />
+                }
+              >
+                Shopify
+              </Typography>
+            }
+            dialogProps={{
+              sx: {
+                maxWidth: 'md',
+                height: 'auto',
+              },
+            }}
+          >
+            <ShopifySettings agentId={props.agentId} />
+          </shopifyModal.component>
         </>
       )}
 

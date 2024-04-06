@@ -7,11 +7,12 @@ import {
   createLazyAuthHandler,
   respond,
 } from '@chaindesk/lib/createa-api-handler';
-import getRequestCountry from '@chaindesk/lib/get-request-country';
+import getRequestLocation from '@chaindesk/lib/get-request-location';
 import handleChatMessage, {
   ChatAgentArgs,
   ChatConversationArgs,
 } from '@chaindesk/lib/handle-chat-message';
+import logger from '@chaindesk/lib/logger';
 import cors from '@chaindesk/lib/middlewares/cors';
 import pipe from '@chaindesk/lib/middlewares/pipe';
 import rateLimit from '@chaindesk/lib/middlewares/rate-limit';
@@ -23,6 +24,7 @@ import {
   ConversationChannel,
   MembershipRole,
   Prisma,
+  ToolType,
 } from '@chaindesk/prisma';
 import { prisma } from '@chaindesk/prisma/client';
 
@@ -45,8 +47,9 @@ export const chatAgentRequest = async (
 
   const conversationId = data.conversationId || cuid();
   if (
-    session?.authType == 'apiKey' &&
-    data.channel !== ConversationChannel.form
+    (session?.authType == 'apiKey' &&
+      data.channel !== ConversationChannel.form) ||
+    !data.channel
   ) {
     data.channel = ConversationChannel.api;
   }
@@ -62,12 +65,19 @@ export const chatAgentRequest = async (
 
         include: {
           ...ChatAgentArgs.include?.organization.include,
-          ...(hasContact
-            ? {
-                contacts: {
-                  take: 1,
-                  where: {
-                    OR: [
+          contacts: {
+            take: 1,
+            where: {
+              OR: [
+                {
+                  conversationsV2: {
+                    some: {
+                      id: conversationId,
+                    },
+                  },
+                },
+                ...(hasContact
+                  ? [
                       ...(data?.contact?.email
                         ? [{ email: data.contact.email }]
                         : []),
@@ -77,11 +87,11 @@ export const chatAgentRequest = async (
                       ...(data?.contact?.userId
                         ? [{ externalId: data.contact.userId }]
                         : []),
-                    ],
-                  },
-                },
-              }
-            : {}),
+                    ]
+                  : []),
+              ],
+            },
+          },
           conversations: {
             ...ChatConversationArgs,
             take: 1,
@@ -169,11 +179,18 @@ export const chatAgentRequest = async (
               id: agent?.organization?.id!,
             },
           },
+          metadata: getRequestLocation(req),
         },
       });
     } catch (error) {
       console.log('error', error);
     }
+  }
+
+  if (!!existingContact || hasContact) {
+    agent.tools = agent.tools.filter(
+      (each) => each.type !== ToolType.lead_capture
+    );
   }
 
   const chatRes = await handleChatMessage({
@@ -183,7 +200,7 @@ export const chatAgentRequest = async (
     conversation: agent?.organization?.conversations?.[0],
     handleStream,
     abortController: ctrl,
-    country: getRequestCountry(req),
+    location: getRequestLocation(req),
     userId: session?.user?.id,
     visitorId,
     contactId: existingContact?.id || data?.contactId,
@@ -199,6 +216,7 @@ export const chatAgentRequest = async (
         sources: chatRes?.agentResponse?.sources,
         conversationId: chatRes.conversationId,
         visitorId: visitorId,
+        metadata: chatRes?.agentResponse?.metadata,
       }),
       res,
     });

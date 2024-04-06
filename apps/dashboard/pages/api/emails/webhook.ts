@@ -71,6 +71,7 @@ export async function inboundWebhook(
     .promise();
 
   const mail = await mailparser.simpleParser(obj.Body?.toString('utf-8')!);
+  console.log('Parsed headers----------_>', JSON.stringify(mail.headers));
   const messageId = mail?.messageId as string;
 
   if (!messageId) {
@@ -98,13 +99,26 @@ export async function inboundWebhook(
   console.log('attachements', mail.attachments);
   console.log('replyto ----------->', mail.inReplyTo);
 
+  let forwardTo = mail.headers.get('x-forwarded-to');
+  console.log('forwardTo---------->', forwardTo);
+  forwardTo = ((!!forwardTo && typeof forwardTo === 'string'
+    ? [forwardTo]
+    : forwardTo) || []) as string[];
+
+  console.log('forwardTo----------->', forwardTo);
+
   const filter = `@${process.env.INBOUND_EMAIL_DOMAIN}`;
-  const aliases = toEmails
-    .filter((one) => one?.endsWith(filter))
-    ?.map((each) => each?.replace(filter, '')) as string[];
+  const aliases = [
+    ...toEmails.filter((one) => one?.endsWith(filter)),
+    ...forwardTo?.filter?.((each: string) => each?.endsWith?.(filter)),
+  ]?.map((each) => each?.replace(filter, '')) as string[];
+
   const customDomains = toEmails.filter(
     (one) => !one?.endsWith(filter)
   ) as string[];
+
+  console.log('aliases------->', aliases);
+  console.log('customDomains---------->', customDomains);
 
   if (aliases?.length <= 0 && customDomains?.length <= 0) {
     // Custom domain not implmented yet
@@ -176,6 +190,7 @@ export async function inboundWebhook(
     .flat();
 
   if (inboxes.length <= 0) {
+    console.log('No inbox found---------->');
     throw new ApiError(ApiErrorType.INVALID_REQUEST);
   }
 
@@ -286,7 +301,7 @@ export async function inboundWebhook(
       contactId: contact.id,
       from: MessageFrom.human,
       text: lastMessage || mail.text,
-      html: mail.html,
+      html: mail.html || '',
       attachments: {
         createMany: {
           data: attachments,

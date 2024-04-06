@@ -1,14 +1,21 @@
+import slugify from '@sindresorhus/slugify';
 import {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources';
 
-import { AgentModelName, Message, Tool, ToolType } from '@chaindesk/prisma';
+import {
+  Agent,
+  AgentModelName,
+  ConversationChannel,
+  Message,
+  Tool,
+  ToolType,
+} from '@chaindesk/prisma';
 
 import { handler as datastoreToolHandler } from './agent/tools/datastore';
 import {
-  createHandler as createFormToolHandler,
-  createParser as createParserFormTool,
+  createHandlerV2 as createFormToolHandlerV2,
   toJsonSchema as formToolToJsonSchema,
 } from './agent/tools/form';
 import {
@@ -47,6 +54,7 @@ import {
   ToolSchema,
 } from './types/dtos';
 import ChatModel from './chat-model';
+import cleanTextForEmbeddings from './clean-text-for-embeddings';
 import { ModelConfig } from './config';
 import createToolParser from './create-tool-parser';
 import formatMessagesOpenAI from './format-messages-openai';
@@ -60,6 +68,9 @@ import {
 import truncateChatMessages from './truncateChatMessages';
 
 export type ChatProps = ChatModelConfigSchema & {
+  organizationId: string;
+  agentId: string;
+  channel?: ConversationChannel;
   systemPrompt?: string;
   userPrompt?: string;
   query: string;
@@ -75,8 +86,11 @@ export type ChatProps = ChatModelConfigSchema & {
   topK?: number;
   toolsConfig?: ChatRequest['toolsConfig'];
   conversationId?: ChatRequest['conversationId'];
-  organizationId: string;
-  agentId: string;
+
+  // Behaviors
+  useMarkdown?: boolean;
+  useLanguageDetection?: boolean;
+  restrictKnowledge?: boolean;
 };
 
 const chat = async ({
@@ -97,6 +111,10 @@ const chat = async ({
   organizationId,
   agentId,
   retrievalQuery,
+  useMarkdown,
+  useLanguageDetection,
+  restrictKnowledge,
+  channel,
   ...otherProps
 }: ChatProps) => {
   // Tools
@@ -137,6 +155,7 @@ const chat = async ({
     throw 'ToolApprovalRequired';
   };
 
+  let messageId = undefined;
   let metadata: object | undefined = undefined;
 
   const baseConfig = {
@@ -148,9 +167,13 @@ const chat = async ({
 
   const createHandler =
     <T extends { type: ToolType }>(handler: CreateToolHandler<T>) =>
-    (tool: ToolSchema & T, config: CreateToolHandlerConfig<T>) =>
+    (
+      tool: ToolSchema & T,
+      config: CreateToolHandlerConfig<T>,
+      channel?: ConversationChannel
+    ) =>
     async (args: ToolPayload<T>) => {
-      const res = await handler(tool, config)(args);
+      const res = await handler(tool, config, channel)(args);
 
       if (res?.approvalRequired) {
         return handleToolWithApproval({
@@ -166,6 +189,10 @@ const chat = async ({
         };
       }
 
+      if (res.messageId) {
+        messageId = res.messageId as string;
+      }
+
       return res?.data;
     };
 
@@ -178,10 +205,7 @@ const chat = async ({
       function: {
         ...httpToolToJsonSchema(each),
         parse: createParserHttpTool(each, config),
-        function: createHandler<{ type: 'http' }>(createHttpToolHandler)(
-          each,
-          config
-        ),
+        function: createHandler(createHttpToolHandler)(each, config),
       },
       // } as RunnableToolFunction<HttpToolPayload>)
     } as ChatCompletionTool;
@@ -194,9 +218,9 @@ const chat = async ({
     return {
       type: 'function',
       function: {
-        ...formToolToJsonSchema(each, config),
-        parse: createParserFormTool(each, config),
-        function: createHandler(createFormToolHandler)(each, config),
+        ...formToolToJsonSchema(each),
+        parse: JSON.parse,
+        function: createHandler(createFormToolHandlerV2)(each, config, channel),
       },
     } as ChatCompletionTool;
   });
@@ -255,16 +279,16 @@ const chat = async ({
     | Awaited<ReturnType<typeof datastoreToolHandler>>
     | undefined = undefined;
 
-  if (userPrompt?.includes('{context}')) {
-    retrievalData = await datastoreToolHandler({
-      maxTokens: ModelConfig?.[modelName!]?.maxTokens * 0.2,
-      query: retrievalQuery || query,
-      tools: tools,
-      filters: filters,
-      topK: topK,
-      similarityThreshold: 0.7,
-    });
-  }
+  // if (userPrompt?.includes('{context}')) {
+  retrievalData = await datastoreToolHandler({
+    maxTokens: Math.min(ModelConfig?.[modelName!]?.maxTokens * 0.2, 2000), // limit RAG to max 2K tokens
+    query: retrievalQuery || query,
+    tools: tools,
+    filters: filters,
+    topK: topK,
+    similarityThreshold: 0.72,
+  });
+  // }
 
   // Messages
   const truncatedHistory = (
@@ -274,114 +298,163 @@ const chat = async ({
     })
   ).reverse();
 
-  let _systemPrompt = systemPrompt || '';
+  const isViaOpenRouter =
+    !!ModelConfig[modelName]?.baseUrl?.includes?.('openrouter');
 
-  if (!!markAsResolvedTool) {
-    _systemPrompt += `\n${MARK_AS_RESOLVED}`;
-  }
-
-  if (!!requestHumanTool) {
-    _systemPrompt += `\n${REQUEST_HUMAN}`;
-  }
-
-  if (!!leadCaptureTool) {
-    _systemPrompt += `\n${createLeadCapturePrompt({
-      isEmailEnabled: !!leadCaptureTool.config.isEmailEnabled,
-      isPhoneNumberEnabled: !!leadCaptureTool.config.isPhoneNumberEnabled,
-      isRequiredToContinue: !!leadCaptureTool.config.isRequired,
-    })}`;
-  }
-
-  const messages: ChatCompletionMessageParam[] = [
-    ...(_systemPrompt
-      ? [
-          {
-            role: 'system',
-            content: _systemPrompt,
-          } as ChatCompletionMessageParam,
-        ]
-      : []),
-    ...truncatedHistory,
-    {
-      role: 'user',
-      content: promptInject({
-        template: userPrompt || '{query}',
-        query: query,
-        context: retrievalData?.context,
-      }),
-    },
-  ];
-
-  const model = new ChatModel();
-
-  const openAiTools = [
-    ...formatedHttpTools,
-    ...formatedFormTools,
-    ...(formatedMarkAsResolvedTool ? [formatedMarkAsResolvedTool] : []),
-    ...(formatedRequestHumanTool ? [formatedRequestHumanTool] : []),
-    ...(formatedLeadCaptureTool ? [formatedLeadCaptureTool] : []),
-    ...(nbDatastoreTools > 0
-      ? [
-          {
-            type: 'function',
-            function: {
-              name: 'queryKnowledgeBase',
-              description: `Useful to fetch informations from the knowledge base (${datastoreTools
-                .map((each) => each?.datastore?.name)
-                .join(', ')})`,
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
-              parse: JSON.parse,
-              function: async () => {
-                if (retrievalData) {
-                  return retrievalData.context;
-                }
-
-                retrievalData = await datastoreToolHandler({
-                  maxTokens: ModelConfig?.[modelName!]?.maxTokens * 0.2,
-                  query: retrievalQuery || query,
-                  tools: tools,
-                  filters: filters,
-                  topK: topK,
-                  similarityThreshold: 0.7,
-                });
-                return retrievalData.context;
-              },
-            },
-          } as ChatCompletionTool,
-        ]
-      : []),
-  ] as ChatCompletionTool[];
-
-  console.log(
-    'CHAT V3 PAYLOAD',
-    JSON.stringify(
-      {
-        handleStream: stream,
-        model: ModelConfig[modelName]?.name,
-        messages,
-        temperature: temperature || 0,
-        top_p: otherProps.topP,
-        frequency_penalty: otherProps.frequencyPenalty,
-        presence_penalty: otherProps.presencePenalty,
-        max_tokens: otherProps.maxTokens,
-        signal: abortController?.signal,
-        tools: openAiTools,
-        ...(openAiTools?.length > 0
-          ? {
-              tool_choice: 'auto',
-            }
-          : {}),
-      },
-      null,
-      2
-    )
-  );
+  const model = new ChatModel({
+    baseURL: ModelConfig[modelName]?.baseUrl,
+    apiKey: isViaOpenRouter
+      ? process.env.OPENROUTER_API_KEY
+      : process.env.OPENAI_API_KEY,
+  });
 
   try {
-    const output = await model.call({
+    // if (!!markAsResolvedTool) {
+    //   _systemPrompt += `\n${MARK_AS_RESOLVED}`;
+    // }
+
+    // if (!!requestHumanTool) {
+    //   _systemPrompt += `\n${REQUEST_HUMAN}`;
+    // }
+
+    // if (!!leadCaptureTool) {
+    //   _systemPrompt += `\n${createLeadCapturePrompt({
+    //     isEmailEnabled: !!leadCaptureTool.config.isEmailEnabled,
+    //     isPhoneNumberEnabled: !!leadCaptureTool.config.isPhoneNumberEnabled,
+    //     isRequiredToContinue: !!leadCaptureTool.config.isRequired,
+    //   })}`;
+    // }
+
+    const infos = [
+      ...(leadCaptureTool?.config?.isEmailEnabled ? ['email'] : []),
+      ...(leadCaptureTool?.config?.isPhoneNumberEnabled
+        ? ['phone number and phone extension']
+        : []),
+    ].join(' and ');
+
+    const requestHumanInstructions = `If the user is not satisfied with the assistant answers, offer to request a human operator, then if the user accepts use tool \`request_human\` to request a human to take over the conversation.`;
+    const markAsResolvedInstructions = `If the user is happy with your answer, use tool \`mark_as_resolved\` to mark the conversation as resolved.`;
+
+    const _systemPrompt = `${systemPrompt}
+    ${
+      !!leadCaptureTool
+        ? `**Lead Capture**
+    1. Start the conversation by greeting the user and asking for his ${infos} in order to contact them if necessary.
+    2. If the user provides their ${infos}, confirm receipt.
+    3. If the user does not provide his ${infos}, politely ask again.
+    5. Make sure the ${infos} is/are valid and are not empty before proceeding.
+    4. After the user has provided a valid ${infos}, thank them and save the email whith the lead capture tool.
+    ${
+      leadCaptureTool?.config?.isRequired
+        ? `5. If the user refuses to provide his ${infos}, politely inform the user that you need the ${infos} to continue the conversation. Do not continue until the user has provided valid ${infos}.`
+        : ``
+    }`
+        : ``
+    }
+    ${
+      useMarkdown
+        ? `Answer using markdown to display the content in a nice and aerated way.`
+        : ``
+    }
+    ${
+      useLanguageDetection
+        ? `Answer the users question in the same language as the user question. You can speak all languages.`
+        : ``
+    }
+    ${
+      // use useLanguageDetection for this too until we add a checkbox in the ui
+      useLanguageDetection
+        ? `Never make up URLs, email addresses, or any other information that have not been provided during the conversation. Only use information provided by the user to fill forms.`
+        : ``
+    }
+    ${!!markAsResolvedTool ? markAsResolvedInstructions : ``}
+    ${!!requestHumanTool ? requestHumanInstructions : ``}
+    ${nbDatastoreTools > 0 ? `Knowledge Base: ${retrievalData?.context}` : ``}
+    `.trim();
+
+    const messages: ChatCompletionMessageParam[] = [
+      ...(_systemPrompt
+        ? [
+            {
+              role: 'system',
+              content: _systemPrompt,
+            } as ChatCompletionMessageParam,
+          ]
+        : []),
+      ...(nbDatastoreTools > 0
+        ? restrictKnowledge
+          ? ([
+              {
+                role: 'user',
+                content: `Only use previous message to answer my questions. If information to answer my question is not relevant, politely say that you do not know. I do not want to see misleading answers. Don't try to make up an answer.`,
+              },
+              {
+                role: 'assistant',
+                content: `Ok I will follow your instructions carefully. I will only use the knowledge base you provided to answer your questions. If informations to answer your questions can't be found in the knowledge base or if informations are not complete enough I will politely say that I do not know. I will not generate misleading answers. I will not try to make up an answer.`,
+              },
+            ] as ChatCompletionMessageParam[])
+          : ([] as ChatCompletionMessageParam[])
+        : []),
+      ...truncatedHistory,
+      {
+        role: 'user',
+        content: promptInject({
+          template: userPrompt || '{query}',
+          query: query,
+          context: retrievalData?.context,
+        }),
+      },
+    ];
+
+    const openAiTools = [
+      ...formatedHttpTools,
+      ...formatedFormTools,
+      ...(formatedMarkAsResolvedTool ? [formatedMarkAsResolvedTool] : []),
+      ...(formatedRequestHumanTool ? [formatedRequestHumanTool] : []),
+      ...(formatedLeadCaptureTool ? [formatedLeadCaptureTool] : []),
+      // ...(nbDatastoreTools > 0
+      //   ? [
+      //       {
+      //         type: 'function',
+      //         function: {
+      //           name: 'queryKnowledgeBase',
+      //           description: `Useful to fetch informations from the knowledge base (${datastoreTools
+      //             .map((each) => each?.datastore?.name)
+      //             .join(', ')})`,
+      //           parameters: {
+      //             type: 'object',
+      //             properties: {},
+      //           },
+      //           parse: JSON.parse,
+      //           function: async () => {
+      //             if (retrievalData) {
+      //               return retrievalData.context;
+      //             }
+
+      //             retrievalData = await datastoreToolHandler({
+      //               maxTokens: ModelConfig?.[modelName!]?.maxTokens * 0.2,
+      //               query: retrievalQuery || query,
+      //               tools: tools,
+      //               filters: filters,
+      //               topK: topK,
+      //               similarityThreshold: 0.7,
+      //             });
+      //             return retrievalData.context;
+      //           },
+      //         },
+      //       } as ChatCompletionTool,
+      //     ]
+      //   : []),
+    ] as ChatCompletionTool[];
+
+    const numberOfMessages =
+      Number(history?.filter((msg) => msg.from === 'human').length) + 1;
+
+    const formToolToCall = formTools.find(
+      (formTool) => formTool.config?.messageCountTrigger === numberOfMessages
+    );
+
+    const callParams = {
       handleStream: stream,
       model: ModelConfig[modelName]?.name,
       messages,
@@ -391,13 +464,33 @@ const chat = async ({
       presence_penalty: otherProps.presencePenalty,
       max_tokens: otherProps.maxTokens,
       signal: abortController?.signal,
-      tools: openAiTools,
+      tools: ModelConfig[modelName].isToolCallingSupported ? openAiTools : [],
       ...(openAiTools?.length > 0
         ? {
-            tool_choice: 'auto',
+            tool_choice: formToolToCall!!
+              ? {
+                  type: 'function',
+                  function: {
+                    ...formToolToJsonSchema(formToolToCall),
+                    parse: JSON.parse,
+                    function: createHandler(createFormToolHandlerV2)(
+                      formToolToCall,
+                      {
+                        ...baseConfig,
+                        toolConfig: formToolToCall.id
+                          ? toolsConfig?.[formToolToCall.id]
+                          : undefined,
+                      },
+                      channel
+                    ),
+                  },
+                }
+              : 'auto',
           }
         : {}),
-    });
+    } as Parameters<typeof model.call>[0];
+
+    const output = await model.call(callParams);
 
     const answer = output?.answer;
 
@@ -411,12 +504,23 @@ const chat = async ({
       }),
     };
 
+    // if (metadata && 'shouldDisplayForm' in metadata) {
+    //   return {
+    //     answer: '',
+    //     usage: {},
+    //     approvals,
+    //     sources: [] as Source[],
+    //     metadata,
+    //   };
+    // }
+
     return {
       answer,
       usage,
       sources: retrievalData?.sources || [],
       approvals,
       metadata,
+      messageId,
     } as ChatResponse;
   } catch (err: any) {
     if (err?.message?.includes('ToolApprovalRequired')) {
@@ -426,6 +530,7 @@ const chat = async ({
         approvals,
         sources: [] as Source[],
         metadata,
+        messageId,
       } as ChatResponse;
     } else {
       throw err;

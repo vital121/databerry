@@ -430,6 +430,8 @@ model Message {
 
   attachments Attachment[]
 
+  submission FormSubmission?
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
@@ -654,8 +656,10 @@ model Lead {
 }
 model Form {
   id          String  @id @default(cuid())
-
+  
   name        String
+
+  type        FormType    @default(traditional)
 
   draftConfig Json?
   publishedConfig Json?
@@ -693,6 +697,9 @@ model FormSubmission {
 
   conversationId String?  @map("conversation_id")
   conversation Conversation? @relation(fields: [conversationId], references: [id])
+
+  messageId String?  @map("message_id") @unique
+  message Message? @relation(fields: [messageId], references: [id])
 
   createdAt DateTime @default(now()) @map("created_at")
   @@map("form_submissions")
@@ -812,6 +819,8 @@ model Contact {
 
   visitors Visitor[]
 
+  metadata Json?
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -826,6 +835,8 @@ model Visitor {
 
   contact   Contact?  @relation(fields: [contactId], references: [id])
   contactId String? @map("contact_id")
+
+   metadata Json?
 
   organizationId String?       @map("organization_id")
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -856,6 +867,7 @@ model VerificationCode {
 
 enum LLMTaskOutputType {
   youtube_summary
+  web_page_summary
 }
 
 enum DatastoreVisibility {
@@ -892,9 +904,10 @@ enum DatasourceType {
 }
 
 enum ServiceProviderType {
+  website
+  wordpress
   google_drive
   notion
-  website
   crisp
   slack
   zendesk
@@ -976,6 +989,11 @@ enum ConversationChannel {
   whatsapp
 }
 
+enum FormType {
+  conversational
+  traditional
+}
+
 enum AgentModelName {
   gpt_3_5_turbo
   gpt_3_5_turbo_16k
@@ -983,6 +1001,9 @@ enum AgentModelName {
   gpt_4_32k
   gpt_4_turbo
   gpt_4_turbo_vision
+  claude_3_haiku
+  mixtral_8x7b
+  dolphin_mixtral_8x7b
 }
 
 enum MessageEval {

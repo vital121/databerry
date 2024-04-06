@@ -18,16 +18,15 @@ import MenuItem from '@mui/joy/MenuItem';
 import React, { RefObject, useEffect } from 'react';
 import useSWR from 'swr';
 
-import useChat from '@app/hooks/useChat';
-import useStateReducer from '@app/hooks/useStateReducer';
 import { getAgents } from '@app/pages/api/agents';
 
 import { fetchEventSource } from '@chaindesk/lib/fetch-event-source';
 import { fetcher } from '@chaindesk/lib/swr-fetcher';
 import { SSE_EVENT } from '@chaindesk/lib/types';
 import { Prisma } from '@chaindesk/prisma';
-
-import Loader from './Loader';
+import useChat from '@chaindesk/ui/hooks/useChat';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
+import Loader from '@chaindesk/ui/Loader';
 
 interface MenuItem {
   name: string;
@@ -41,9 +40,7 @@ interface MenuSection {
 }
 
 enum ActionsSystemPrompt {
-  grammar = `Analyze the text for grammatical correctness, identify any issues with punctuation, sentence structure, verb tenses, 
-  and word usage. Provide a grammatically correct  version of the text, ensuring that it maintains the original meaning and context intended by the user.
-  However,and this is important, if the text is already grammatically correct and there are no issues to fix, please return the original text to me without any modifications or comments on its correctness..`,
+  grammar = `Check for grammatical errors and correct them if any are found, send back the same user query without doing anything.`,
   summarize = `The user has provided detailed text that needs to be made more concise. Extract the key points and main ideas
    from the text. Create a succinct summary that captures the essence of the message but is significantly shorter in length. 
    The summary should be clear, coherent, and retain all critical information.`,

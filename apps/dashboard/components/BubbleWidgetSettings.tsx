@@ -21,14 +21,16 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import html from 'react-syntax-highlighter/dist/esm/languages/hljs/htmlbars';
 import docco from 'react-syntax-highlighter/dist/esm/styles/hljs/vs2015';
 
-import { theme, themeKeys } from '@app/utils/themes/chat-bubble';
+import ChatBoxLoader from '@app/components/ChatBoxLoader';
+import { useDeepCompareMemoize } from '@app/hooks/useDeepCompareEffect';
 
 import { CreateAgentSchema } from '@chaindesk/lib/types/dtos';
+import ChatBubble from '@chaindesk/ui/embeds/chat-bubble';
+import WidgetThemeProvider from '@chaindesk/ui/themes/embeds-provider';
 
 import CommonInterfaceInput from './AgentInputs/CommonInterfaceInput';
 import CustomCSSInput from './AgentInputs/CustomCSSInput';
 import AgentForm from './AgentForm';
-import ChatBubble from './ChatBubble';
 import ConnectForm from './ConnectForm';
 import ReactFrameStyleFix from './ReactFrameStyleFix';
 
@@ -39,6 +41,69 @@ if (typeof window !== 'undefined') {
 type Props = {
   agentId: string;
 };
+
+function RenderWidget({ agentId, config }: any) {
+  const memoizedConfig = useDeepCompareMemoize(config);
+  const MemoizedChatBubble = React.useMemo(() => {
+    return (
+      <Frame
+        style={{
+          width: '100%',
+          height: 600,
+          border: '1px solid rgba(0, 0, 0, 0.2)',
+          borderRadius: 20,
+        }}
+      >
+        <FrameContextConsumer>
+          {({ document }) => {
+            const cache = createCache({
+              key: 'iframe',
+              container: document?.head,
+              prepend: true,
+              speedy: true,
+            });
+
+            return (
+              <WidgetThemeProvider
+                emotionCache={cache}
+                prefix="chaindesk-bubble"
+              >
+                <ReactFrameStyleFix />
+
+                <Box
+                  sx={{
+                    width: '100vw',
+                    height: '100vh',
+                    maxHeight: '100%',
+                    overflow: 'hidden',
+                    p: 2,
+                  }}
+                >
+                  <ChatBoxLoader
+                    // eslint-disable-next-line
+                    children={ChatBubble}
+                    agentId={agentId}
+                    initConfig={memoizedConfig}
+                  />
+
+                  {memoizedConfig?.customCSS && (
+                    <style
+                      dangerouslySetInnerHTML={{
+                        __html: memoizedConfig?.customCSS || '',
+                      }}
+                    ></style>
+                  )}
+                </Box>
+              </WidgetThemeProvider>
+            );
+          }}
+        </FrameContextConsumer>
+      </Frame>
+    );
+  }, [agentId, memoizedConfig]);
+
+  return MemoizedChatBubble;
+}
 
 export default function BubbleWidgetSettings(props: Props) {
   const installScript = `<script type="module">
@@ -82,6 +147,7 @@ export default function BubbleWidgetSettings(props: Props) {
         return (
           <ConnectForm<CreateAgentSchema>>
             {({ watch, register, control, formState, setValue }) => {
+              const { isDirty, isValid } = formState;
               const config = watch('interfaceConfig');
               return (
                 <>
@@ -121,7 +187,7 @@ export default function BubbleWidgetSettings(props: Props) {
                           />
                         </FormControl>
 
-                        {formState.isDirty && formState.isValid && (
+                        {isDirty && isValid && (
                           <Button
                             type="submit"
                             loading={mutation.isMutating}
@@ -150,63 +216,10 @@ export default function BubbleWidgetSettings(props: Props) {
                         spacing={2}
                       >
                         {query?.data?.id && config && (
-                          <Frame
-                            style={{
-                              width: '100%',
-                              height: 600,
-                              border: '1px solid rgba(0, 0, 0, 0.2)',
-                              borderRadius: 20,
-                            }}
-                          >
-                            <FrameContextConsumer>
-                              {({ document }) => {
-                                const cache = createCache({
-                                  key: 'iframe',
-                                  container: document?.head,
-                                  prepend: true,
-                                  speedy: true,
-                                });
-
-                                return (
-                                  <StyledEngineProvider injectFirst>
-                                    <CacheProvider value={cache}>
-                                      <CssVarsProvider
-                                        theme={theme}
-                                        defaultMode="light"
-                                        {...themeKeys}
-                                      >
-                                        <CssBaseline />
-
-                                        <ReactFrameStyleFix />
-
-                                        <Box
-                                          sx={{
-                                            width: '100vw',
-                                            height: '100vh',
-                                            maxHeight: '100%',
-                                            overflow: 'hidden',
-                                            p: 2,
-                                          }}
-                                        >
-                                          <ChatBubble
-                                            agentId={query?.data?.id!}
-                                            initConfig={config}
-                                          />
-                                          {config?.customCSS && (
-                                            <style
-                                              dangerouslySetInnerHTML={{
-                                                __html: config?.customCSS || '',
-                                              }}
-                                            ></style>
-                                          )}
-                                        </Box>
-                                      </CssVarsProvider>
-                                    </CacheProvider>
-                                  </StyledEngineProvider>
-                                );
-                              }}
-                            </FrameContextConsumer>
-                          </Frame>
+                          <RenderWidget
+                            agentId={query?.data?.id}
+                            config={config}
+                          />
                         )}
 
                         <Stack>{<CustomCSSInput />}</Stack>

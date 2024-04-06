@@ -24,13 +24,12 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import html from 'react-syntax-highlighter/dist/esm/languages/hljs/htmlbars';
 import { isValid } from 'zod';
 
-import useStateReducer from '@app/hooks/useStateReducer';
-
 import {
   CreateAgentSchema,
   UpdateAgentSchema,
 } from '@chaindesk/lib/types/dtos';
 import writeClipboard from '@chaindesk/lib/write-clipboard';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
 
 import CommonInterfaceInput from './AgentInputs/CommonInterfaceInput';
 import AgentForm from './AgentForm';
@@ -208,12 +207,7 @@ export default function StandalonePageSettings(props: Props) {
                           height: '500px',
                           borderRadius: '15px',
                         }}
-                        src={`${process.env.NEXT_PUBLIC_DASHBOARD_URL?.replace(
-                          'app.',
-                          ''
-                        )}/agents/${query?.data?.id}/standalone?counter=${
-                          state.counter
-                        }`}
+                        src={`${process.env.NEXT_PUBLIC_DASHBOARD_URL}/agents/${query?.data?.id}/standalone?counter=${state.counter}`}
                         frameBorder="0"
                       ></iframe>
                     </Stack>

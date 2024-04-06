@@ -24,7 +24,7 @@ import {
   Select,
   SelectProps,
   TabList,
-  Tabs,
+  Tabs as JoyTabs,
   Tooltip,
 } from '@mui/joy';
 import Alert from '@mui/joy/Alert';
@@ -45,13 +45,13 @@ import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
 import { ReactElement, useCallback, useEffect, useMemo } from 'react';
 import React from 'react';
+import ReactCountryFlag from 'react-country-flag';
 import toast from 'react-hot-toast';
 import InfiniteScroll from 'react-infinite-scroller';
 import useSWR from 'swr';
 import useSWRInfinite from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 
-import ChatBox from '@app/components/ChatBox';
 import { ConversationExport } from '@app/components/ConversationExport';
 import CopyButton from '@app/components/CopyButton';
 import DraftReplyInput from '@app/components/DarftReplyInput';
@@ -59,9 +59,6 @@ import ImproveAnswerModal from '@app/components/ImproveAnswerModal';
 import InboxConversationSettings from '@app/components/InboxConversationSettings';
 import Layout from '@app/components/Layout';
 import { updateConversationStatus } from '@app/components/ResolveButton';
-import { handleEvalAnswer } from '@app/hooks/useChat';
-import useFileUpload from '@app/hooks/useFileUpload';
-import useStateReducer from '@app/hooks/useStateReducer';
 
 // import { client as crispClient } from '@chaindesk/lib/crisp';
 import relativeDate from '@chaindesk/lib/relative-date';
@@ -84,6 +81,10 @@ import {
   MessageFrom,
   Prisma,
 } from '@chaindesk/prisma';
+import ChatBox from '@chaindesk/ui/Chatbox';
+import { handleEvalAnswer } from '@chaindesk/ui/hooks/useChat';
+import useFileUpload from '@chaindesk/ui/hooks/useFileUpload';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
 
 import { getAgents } from '../api/agents';
 import { updateStatus } from '../api/conversations/update-status';
@@ -94,14 +95,14 @@ import { markAllRead } from '../api/messages/mark-all-read';
 
 const LIMIT = 20;
 
-interface SelectQueryParamFilterProps<T> {
+interface SelectQueryParamFilterProps {
   filterName: string;
 }
 
 function SelectQueryParamFilter<T extends {}>({
   filterName,
   ...otherProps
-}: SelectQueryParamFilterProps<T> & SelectProps<T, false>) {
+}: SelectQueryParamFilterProps & SelectProps<T, false>) {
   const router = useRouter();
   const currentValue = router.query[filterName] as unknown as T;
 
@@ -153,7 +154,7 @@ function SelectQueryParamFilter<T extends {}>({
   );
 }
 
-enum TabEnum {
+enum Tabs {
   all = 'all',
   unresolved = 'unresolved',
   unread = 'unread',
@@ -162,23 +163,23 @@ enum TabEnum {
 
 const tabToParams = (tab: string): Record<string, unknown> => {
   switch (tab) {
-    case TabEnum.human_requested:
+    case Tabs.human_requested:
       return {
         status: ConversationStatus.HUMAN_REQUESTED,
         unread: '',
       };
-    case TabEnum.unresolved:
+    case Tabs.unresolved:
       return {
         status: ConversationStatus.UNRESOLVED,
         unread: '',
       };
 
-    case TabEnum.all:
+    case Tabs.all:
       return {
         status: '',
         unread: '',
       };
-    case TabEnum.unread:
+    case Tabs.unread:
       return {
         status: '',
         unread: true,
@@ -197,7 +198,7 @@ export default function LogsPage() {
   const hasFilterApplied =
     router.query.eval ||
     router.query.agentId ||
-    router.query.tab !== TabEnum.all ||
+    router.query.tab !== Tabs.all ||
     router.query.channel ||
     router.query.priority ||
     router.query.assigneeId;
@@ -324,7 +325,7 @@ export default function LogsPage() {
     await getConversationQuery.mutate();
   };
   const handleChangeTab = useCallback(
-    (tab: TabEnum) => {
+    (tab: Tabs) => {
       router.query.tab = tab;
       router.replace(router, undefined, {
         shallow: true,
@@ -400,7 +401,7 @@ export default function LogsPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined' && router.isReady && !router.query.tab) {
-      handleChangeTab(TabEnum.unresolved);
+      handleChangeTab(Tabs.unresolved);
     }
     setState({ currentConversationIndex: 0 });
   }, [router.query.tab, router.isReady, handleChangeTab]);
@@ -562,9 +563,9 @@ export default function LogsPage() {
         answers.
       </Alert> */}
 
-      <Tabs
+      <JoyTabs
         aria-label="tabs"
-        value={(router.query.tab as string) || TabEnum.all}
+        value={(router.query.tab as string) || Tabs.all}
         size="lg"
         sx={{ bgcolor: 'transparent' }}
         defaultValue={1}
@@ -592,23 +593,23 @@ export default function LogsPage() {
             },
           }}
         >
-          <Tab indicatorInset value={TabEnum.unresolved}>
+          <Tab indicatorInset value={Tabs.unresolved}>
             Unresolved
           </Tab>
 
-          <Tab indicatorInset value={TabEnum.unread}>
+          <Tab indicatorInset value={Tabs.unread}>
             Unread
           </Tab>
 
-          <Tab indicatorInset value={TabEnum.human_requested}>
+          <Tab indicatorInset value={Tabs.human_requested}>
             Human Requested
           </Tab>
 
-          <Tab indicatorInset value={TabEnum.all}>
+          <Tab indicatorInset value={Tabs.all}>
             All
           </Tab>
         </TabList>
-      </Tabs>
+      </JoyTabs>
       {/* <Divider  /> */}
       <Stack
         width="100%"
@@ -664,7 +665,7 @@ export default function LogsPage() {
               >
                 <ListItemDecorator>
                   <TaskAltRoundedIcon />
-                </ListItemDecorator>{' '}
+                </ListItemDecorator>
                 Mark all messages as read
               </MenuItem>
               <MenuItem
@@ -927,15 +928,6 @@ export default function LogsPage() {
                           borderRadius: 0,
                         },
 
-                        // backgroundColor: {
-                        //   [ConversationStatus.RESOLVED]:
-                        //     theme.palette.success.softActiveBg,
-                        //   [ConversationStatus.UNRESOLVED]:
-                        //     theme.palette.danger.softActiveBg,
-                        //   [ConversationStatus.HUMAN_REQUESTED]:
-                        //     theme.palette.warning.softActiveBg,
-                        // }[each?.status] as ColorPaletteProp,
-
                         ...(state.currentConversationId === each.id && {
                           backgroundColor: theme.palette.action.hover,
                         }),
@@ -967,10 +959,7 @@ export default function LogsPage() {
                               />
                             )}
                             {each?.status === ConversationStatus.UNRESOLVED && (
-                              <ArrowCircleRightRoundedIcon
-                                color="danger"
-                                fontSize="xl2"
-                              />
+                              <ArrowCircleRightRoundedIcon fontSize="xl2" />
                             )}
                           </>
                         )
@@ -981,9 +970,28 @@ export default function LogsPage() {
                           <Stack
                             direction="row"
                             justifyContent={'space-between'}
+                            gap={1}
                           >
-                            <Typography>
+                            <Typography
+                              level="body-sm"
+                              className="font-semibold truncate"
+                            >
                               {(() => {
+                                if (each?.participantsContacts?.length) {
+                                  return (
+                                    each?.participantsContacts?.[0]
+                                      ?.firstName ||
+                                    each?.participantsContacts?.[0]?.email ||
+                                    each?.participantsContacts?.[0]?.phoneNumber
+                                  );
+                                }
+
+                                if (each?.participantsVisitors?.[0]?.id) {
+                                  return `Visitor${each?.participantsVisitors?.[0]?.id
+                                    ?.slice(-2)
+                                    .toUpperCase()}`;
+                                }
+
                                 if (
                                   each?.channel === ConversationChannel.mail &&
                                   each?.title
@@ -1001,9 +1009,45 @@ export default function LogsPage() {
                               })()}
                             </Typography>
 
-                            <Typography level="body-xs">
-                              {relativeDate(each?.updatedAt)}
-                            </Typography>
+                            {(each.metadata as any)?.country && (
+                              <>
+                                <Box
+                                  sx={{
+                                    minWidth: 16,
+                                    minHeight: 16,
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: '100px',
+                                    borderColor: 'divider',
+                                    borderStyle: 'solid',
+                                    borderWidth: 1,
+                                    overflow: 'hidden',
+                                    p: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    mr: 'auto',
+                                  }}
+                                >
+                                  <ReactCountryFlag
+                                    style={{
+                                      fontSize: '16px',
+                                    }}
+                                    countryCode={(each.metadata as any).country}
+                                    svg
+                                  />
+                                </Box>
+                              </>
+                            )}
+
+                            <Stack direction="row" gap={0.5}>
+                              <Typography
+                                level="body-xs"
+                                className="text-nowrap"
+                              >
+                                {relativeDate(each?.updatedAt)}
+                              </Typography>
+                            </Stack>
                           </Stack>
                           <Stack
                             direction="row"
@@ -1011,8 +1055,17 @@ export default function LogsPage() {
                             alignItems={'start'}
                             gap={1}
                           >
-                            <Typography level="body-sm" noWrap>
-                              {each?.messages?.[0]?.text}
+                            <Typography
+                              level="body-sm"
+                              className="pr-4 line-clamp-2"
+                            >
+                              {/* last human message */}
+                              {each?.messages?.[each?.messages.length - 1]
+                                ?.from === 'human'
+                                ? each?.messages?.[each?.messages.length - 1]
+                                    ?.text
+                                : each?.messages?.[each?.messages.length - 2]
+                                    ?.text}
                             </Typography>
                           </Stack>
                           <Stack
@@ -1110,25 +1163,6 @@ export default function LogsPage() {
                   startDecorator={<Notifications />}
                   endDecorator={
                     <Stack direction="row" spacing={1}>
-                      {/* {!isHumanHandoffButtonHidden && (
-                        <Button
-                          variant="solid"
-                          color={state.isAiEnabled ? 'primary' : 'warning'}
-                          size="md"
-                          loading={conversationUpdater.isMutating}
-                          endDecorator={
-                            state.isAiEnabled ? (
-                              <CommentRoundedIcon fontSize="sm" />
-                            ) : (
-                              <SmartToyIcon fontSize="sm" />
-                            )
-                          }
-                          onClick={toggleAi}
-                        >
-                          {state.isAiEnabled ? 'Reply' : 'Re-Enable AI'}
-                        </Button>
-                      )} */}
-
                       <BannerActions
                         status={getConversationQuery?.data?.status}
                         email={getConversationQuery?.data?.lead?.email!}
@@ -1166,6 +1200,7 @@ export default function LogsPage() {
                     approvals: each.approvals || [],
                     sources: (each.sources as any) || [],
                     attachments: each.attachments || [],
+                    submission: each.submission!,
                     iconUrl: (each?.from === 'human'
                       ? each?.user?.customPicture || each?.user?.picture
                       : each?.agent?.iconUrl) as string,

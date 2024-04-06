@@ -1,21 +1,25 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import InfoRoundedIcon from '@mui/icons-material/InfoRounded';
 import MessageRoundedIcon from '@mui/icons-material/MessageRounded';
 import RocketLaunchRoundedIcon from '@mui/icons-material/RocketLaunchRounded';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SpokeRoundedIcon from '@mui/icons-material/SpokeRounded';
-import { CircularProgress, ColorPaletteProp, IconButton } from '@mui/joy';
+import { Alert, CircularProgress, ColorPaletteProp } from '@mui/joy';
 import Box from '@mui/joy/Box';
 import Breadcrumbs from '@mui/joy/Breadcrumbs';
 import Button from '@mui/joy/Button';
 import Card from '@mui/joy/Card';
 import Chip from '@mui/joy/Chip';
+import IconButton from '@mui/joy/IconButton';
 import ListItemDecorator from '@mui/joy/ListItemDecorator';
 import Stack from '@mui/joy/Stack';
 import Tab, { tabClasses } from '@mui/joy/Tab';
 import TabList from '@mui/joy/TabList';
 import Tabs from '@mui/joy/Tabs';
+import Tooltip from '@mui/joy/Tooltip';
 import Typography from '@mui/joy/Typography';
+import { AgentModelName } from '@prisma/client';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -28,24 +32,24 @@ import AgentDeployTab from '@app/components/AgentDeployTab';
 import AgentForm from '@app/components/AgentForm';
 import HttpToolInput from '@app/components/AgentInputs/HttpToolInput';
 import AgentSettingsTab from '@app/components/AgentSettingsTab';
-import ChatBox from '@app/components/ChatBox';
 import ChatSection from '@app/components/ChatSection';
 import ConversationList from '@app/components/ConversationList';
 import Layout from '@app/components/Layout';
 import LeadCaptureToolForm from '@app/components/LeadCaptureToolForm';
 import LeadCaptureToolFormInput from '@app/components/LeadCaptureToolForm/LeadCaptureToolFormInput';
-import Loader from '@app/components/Loader';
 import UsageLimitModal from '@app/components/UsageLimitModal';
 import useAgent from '@app/hooks/useAgent';
-import useChat from '@app/hooks/useChat';
 import useModal from '@app/hooks/useModal';
-import useStateReducer from '@app/hooks/useStateReducer';
 
 import agentToolFormat, {
   agentToolConfig,
 } from '@chaindesk/lib/agent-tool-format';
+import { ModelConfig } from '@chaindesk/lib/config';
 import { RouteNames } from '@chaindesk/lib/types';
 import { withAuth } from '@chaindesk/lib/withAuth';
+import useChat from '@chaindesk/ui/hooks/useChat';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
+import Loader from '@chaindesk/ui/Loader';
 
 export default function AgentPage() {
   const router = useRouter();
@@ -72,6 +76,7 @@ export default function AgentPage() {
     handleAbort,
     refreshConversation,
   } = useChat({
+    channel: 'dashboard',
     endpoint: router.query?.agentId
       ? `/api/agents/${router.query?.agentId}/query`
       : undefined,
@@ -394,7 +399,28 @@ export default function AgentPage() {
                   <Stack gap={1}>
                     {query?.data?.tools?.map((tool, index) => (
                       <>
-                        <Card key={tool.id} variant="outlined" size="sm">
+                        <Card
+                          key={tool.id}
+                          variant="outlined"
+                          size="sm"
+                          color={(() => {
+                            switch (tool.type) {
+                              case 'lead_capture':
+                                return 'warning';
+                              case 'http':
+                              case 'mark_as_resolved':
+                              case 'form':
+                              case 'request_human':
+                                return ModelConfig[
+                                  query?.data?.modelName as AgentModelName
+                                ].isToolCallingSupported
+                                  ? 'success'
+                                  : 'warning';
+                              default:
+                                return 'success';
+                            }
+                          })()}
+                        >
                           <Stack
                             direction="row"
                             sx={{
@@ -455,7 +481,42 @@ export default function AgentPage() {
                             direction="row"
                             sx={{ justifyContent: 'space-between' }}
                           >
-                            <Chip size="sm">{tool?.type}</Chip>
+                            <Stack gap={1}>
+                              <Chip size="sm">{tool?.type}</Chip>
+                              {tool.type === 'lead_capture' && (
+                                <Alert
+                                  size="sm"
+                                  color="warning"
+                                  startDecorator={
+                                    <InfoRoundedIcon sx={{ fontSize: 'sm' }} />
+                                  }
+                                >
+                                  enabled on bubble/standard widgets only
+                                </Alert>
+                              )}
+
+                              {[
+                                'http',
+                                'mark_as_resolved',
+                                'form',
+                                'request_human',
+                              ].includes(tool.type) &&
+                                !ModelConfig[
+                                  query?.data?.modelName as AgentModelName
+                                ].isToolCallingSupported && (
+                                  <Alert
+                                    size="sm"
+                                    color="warning"
+                                    startDecorator={
+                                      <InfoRoundedIcon
+                                        sx={{ fontSize: 'sm' }}
+                                      />
+                                    }
+                                  >
+                                    model not compatible
+                                  </Alert>
+                                )}
+                            </Stack>
 
                             {(tool as any)?.datastore?._count?.datasources >
                               0 && (
@@ -511,9 +572,7 @@ export default function AgentPage() {
                 >
                   {({ mutation }) => (
                     <Stack gap={2}>
-                      <HttpToolInput
-                        name={`tools.${state.currentToolIndex}` as `tools.0`}
-                      />
+                      <HttpToolInput name={`tools.${state.currentToolIndex}`} />
                       <Button type="submit" loading={mutation.isMutating}>
                         Update
                       </Button>
@@ -543,7 +602,7 @@ export default function AgentPage() {
                   {({ mutation }) => (
                     <Stack gap={2}>
                       <LeadCaptureToolFormInput
-                        name={`tools.${state.currentToolIndex}` as `tools.0`}
+                        name={`tools.${state.currentToolIndex}`}
                       />
                       <Button type="submit" loading={mutation.isMutating}>
                         Update

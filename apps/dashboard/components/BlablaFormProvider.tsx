@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useState,
 } from 'react';
 import {
   FormProvider,
@@ -22,7 +23,6 @@ import useBlablaForm, {
   UseBlablaFormMutation,
   UseBlablaFormQuery,
 } from '@app/hooks/useBlablaForm';
-import useStateReducer from '@app/hooks/useStateReducer';
 
 import {
   CUSTOMER_SUPPORT,
@@ -30,6 +30,7 @@ import {
 } from '@chaindesk/lib/prompt-templates';
 import { CreateFormSchema, FormConfigSchema } from '@chaindesk/lib/types/dtos';
 import { Form, Prisma, PromptType } from '@chaindesk/prisma';
+import useStateReducer from '@chaindesk/ui/hooks/useStateReducer';
 
 // interface ConnectFormProps<TFieldValues extends FieldValues> {
 //   children(children: UseFormReturn<TFieldValues>): ReactElement;
@@ -55,6 +56,7 @@ function BlablaFormForm(props: Props) {
   });
 
   const formId = props?.formId;
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   const { query, mutation, deleteMutation } = useBlablaForm({ id: formId });
 
@@ -102,7 +104,7 @@ function BlablaFormForm(props: Props) {
   );
 
   useEffect(() => {
-    if (query?.data) {
+    if (query?.data && !hasLoadedOnce) {
       methods.reset(
         {
           ...(query.data as any),
@@ -112,8 +114,9 @@ function BlablaFormForm(props: Props) {
           keepDefaultValues: true,
         }
       );
+      setHasLoadedOnce(true);
     }
-  }, [query?.data]);
+  }, [query?.data, hasLoadedOnce]);
 
   // useEffect(() => {
   //   const subscription = watch(() => {
